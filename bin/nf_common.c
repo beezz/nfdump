@@ -3,37 +3,37 @@
  *  Copyright (c) 2009, Peter Haag
  *  Copyright (c) 2004-2008, SWITCH - Teleinformatikdienste fuer Lehre und Forschung
  *  All rights reserved.
- *  
- *  Redistribution and use in source and binary forms, with or without 
+ *
+ *  Redistribution and use in source and binary forms, with or without
  *  modification, are permitted provided that the following conditions are met:
- *  
- *   * Redistributions of source code must retain the above copyright notice, 
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
  *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright notice, 
- *     this list of conditions and the following disclaimer in the documentation 
+ *   * Redistributions in binary form must reproduce the above copyright notice,
+ *     this list of conditions and the following disclaimer in the documentation
  *     and/or other materials provided with the distribution.
- *   * Neither the name of the author nor the names of its contributors may be 
- *     used to endorse or promote products derived from this software without 
+ *   * Neither the name of the author nor the names of its contributors may be
+ *     used to endorse or promote products derived from this software without
  *     specific prior written permission.
- *  
- *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" 
- *  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE 
- *  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE 
- *  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE 
- *  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR 
- *  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF 
- *  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- *  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN 
- *  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
- *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ *  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ *  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ *  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ *  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ *  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ *  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ *  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ *  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
- *  
+ *
  *  $Author: haag $
  *
  *  $Id: nf_common.c 69 2010-09-09 07:17:43Z haag $
  *
  *  $LastChangedRevision: 69 $
- *	
+ *
  */
 
 #include "config.h"
@@ -56,6 +56,11 @@
 #include "nffile.h"
 #include "nf_common.h"
 #include "util.h"
+
+#ifdef ZMQ
+#include "json.h"
+#endif
+
 
 typedef void (*string_function_t)(master_record_t *, char *);
 
@@ -84,7 +89,7 @@ static double	duration;
 static char header_string[STRINGSIZE];
 static char data_string[STRINGSIZE];
 
-// tag 
+// tag
 static char tag_string[2];
 
 /* prototypes */
@@ -95,6 +100,12 @@ static void InitFormatParser(void);
 static void AddToken(int index);
 
 static void AddString(char *string);
+
+#ifdef ZMQ
+static void JSONDateTimeEpoch(master_record_t *r, char *string);
+static void JSONDateTimeEpochLastSeen(master_record_t *r, char *string);
+static void JSONDateTimeEpochReceived(master_record_t *r, char *string);
+#endif
 
 static void String_FirstSeen(master_record_t *r, char *string);
 
@@ -131,7 +142,7 @@ static void String_DstPort(master_record_t *r, char *string);
 static void String_ICMP_code(master_record_t *r, char *string);
 
 static void String_ICMP_type(master_record_t *r, char *string);
- 
+
 static void String_SrcAS(master_record_t *r, char *string);
 
 static void String_DstAS(master_record_t *r, char *string);
@@ -351,7 +362,7 @@ static struct format_token_list_s {
 	{ "%uname", 0, "UserName", 				String_userName},			// NSEL user name
 
 // NEL
-// for v.1.6.10 compatibility, keep NEL specific addr/port format tokens 
+// for v.1.6.10 compatibility, keep NEL specific addr/port format tokens
 	{ "%nevt",   0, " Event", 				  String_evt },				// NAT event
 	{ "%vrf",    0, "  I-VRF-ID", 			  String_ivrf },			// NAT ivrf ID - compatible
 	{ "%ivrf",   0, "  I-VRF-ID", 			  String_ivrf },			// NAT ivrf ID
@@ -374,9 +385,129 @@ static struct format_token_list_s {
 	{ "%cl", 0, "C Latency", 	 		 	String_ClientLatency },	// client latency
 	{ "%sl", 0, "S latency", 	 		 	String_ServerLatency },	// server latency
 	{ "%al", 0, "A latency", 			 	String_AppLatency },	// app latency
-	
+
 	{ NULL, 0, NULL, NULL }
 };
+
+
+#ifdef ZMQ
+static struct json_format_token_list_s {
+	char				*token;				// token
+	int					is_address;			// is an IP address
+	char				*header;			// header line description
+	string_function_t	string_function;	// function generation output string
+} json_format_token_list[] = {
+	{ "%tfs", 0, "Date first seen        ", JSONDateTimeEpoch },		// Start Time - first seen
+	{ "%ts",  0, "Date first seen        ", JSONDateTimeEpoch },		// Start Time - first seen
+	{ "%te",  0, "Date last seen         ", JSONDateTimeEpochLastSeen },		// End Time	- last seen
+	{ "%tr",  0, "Date flow received     ", JSONDateTimeEpochReceived },		// Received Time
+	{ "%td",  0, " Duration",				String_Duration },		// Duration
+	{ "%exp", 0, "Exp ID",					String_ExpSysID },		// Exporter SysID
+	{ "%pr",  0, "Proto",					String_Protocol },		// Protocol
+	{ "%sa",  1, "     Src IP Addr",		String_SrcAddr },		// Source Address
+	{ "%da",  1, "     Dst IP Addr",		String_DstAddr },		// Destination Address
+	{ "%sn",  1, "        Src Network",		String_SrcNet },		// Source Address applied source netmask
+	{ "%dn",  1, "        Dst Network",		String_DstNet },		// Destination Address applied source netmask
+	{ "%nh",  1, "     Next-hop IP",		String_NextHop },		// Next-hop IP Address
+	{ "%nhb", 1, " BGP next-hop IP",		String_BGPNextHop },	// BGP Next-hop IP Address
+	{ "%ra",  1, "       Router IP",		String_RouterIP },		// Router IP Address
+	{ "%sap", 1, "     Src IP Addr:Port ",	String_SrcAddrPort },	// Source Address:Port
+	{ "%dap", 1, "     Dst IP Addr:Port ",  String_DstAddrPort },	// Destination Address:Port
+	{ "%sp",  0, "Src Pt",					String_SrcPort },		// Source Port
+	{ "%dp",  0, "Dst Pt",					String_DstPort },		// Destination Port
+	{ "%it",  0, "ICMP-T",					String_ICMP_type },		// ICMP type
+	{ "%ic",  0, "ICMP-C",					String_ICMP_code },		// ICMP code
+	{ "%sas", 0, "Src AS",					String_SrcAS },			// Source AS
+	{ "%das", 0, "Dst AS",					String_DstAS },			// Destination AS
+	{ "%nas", 0, "Next AS",					String_NextAS },		// Next AS
+	{ "%pas", 0, "Prev AS",					String_PrevAS },		// Previous AS
+	{ "%in",  0, " Input",					String_Input },			// Input Interface num
+	{ "%out", 0, "Output",					String_Output },		// Output Interface num
+	{ "%pkt", 0, " Packets",				String_InPackets },		// Packets - default input - compat
+	{ "%ipkt", 0, "  In Pkt",				String_InPackets },		// In Packets
+	{ "%opkt", 0, " Out Pkt",				String_OutPackets },	// Out Packets
+	{ "%byt", 0, "   Bytes",				String_InBytes },		// Bytes - default input - compat
+	{ "%ibyt", 0, " In Byte",				String_InBytes },		// In Bytes
+	{ "%obyt", 0, "Out Byte",				String_OutBytes },		// In Bytes
+	{ "%fl",  0, "Flows",					String_Flows },			// Flows
+	{ "%flg", 0,  " Flags",					String_Flags },			// TCP Flags
+	{ "%tos", 0, "Tos",					String_Tos },			// Tos - compat
+	{ "%stos", 0, "STos",					String_SrcTos },		// Tos - Src tos
+	{ "%dtos", 0, "DTos",					String_DstTos },		// Tos - Dst tos
+	{ "%dir", 0, "Dir",					String_Dir },			// Direction: ingress, egress
+	{ "%smk", 0, "SMask",					String_SrcMask },		// Src mask
+	{ "%dmk", 0, "DMask",					String_DstMask },		// Dst mask
+	{ "%fwd", 0, "Fwd",					String_FwdStatus },		// Forwarding Status
+	{ "%svln", 0, "SVlan",					String_SrcVlan },		// Src Vlan
+	{ "%dvln", 0, "DVlan",					String_DstVlan },		// Dst Vlan
+	{ "%ismc", 0, "  In src MAC Addr",		String_InSrcMac },		// Input Src Mac Addr
+	{ "%odmc", 0, " Out dst MAC Addr",		String_OutDstMac },		// Output Dst Mac Addr
+	{ "%idmc", 0, "  In dst MAC Addr",		String_InDstMac },		// Input Dst Mac Addr
+	{ "%osmc", 0, " Out src MAC Addr",		String_OutSrcMac },		// Output Src Mac Addr
+	{ "%mpls1", 0, " MPLS lbl 1 ",			String_MPLS_1 },		// MPLS Label 1
+	{ "%mpls2", 0, " MPLS lbl 2 ",			String_MPLS_2 },		// MPLS Label 2
+	{ "%mpls3", 0, " MPLS lbl 3 ",			String_MPLS_3 },		// MPLS Label 3
+	{ "%mpls4", 0, " MPLS lbl 4 ",			String_MPLS_4 },		// MPLS Label 4
+	{ "%mpls5", 0, " MPLS lbl 5 ",			String_MPLS_5 },		// MPLS Label 5
+	{ "%mpls6", 0, " MPLS lbl 6 ",			String_MPLS_6 },		// MPLS Label 6
+	{ "%mpls7", 0, " MPLS lbl 7 ",			String_MPLS_7 },		// MPLS Label 7
+	{ "%mpls8", 0, " MPLS lbl 8 ",			String_MPLS_8 },		// MPLS Label 8
+	{ "%mpls9", 0, " MPLS lbl 9 ",			String_MPLS_9 },		// MPLS Label 9
+	{ "%mpls10", 0, " MPLS lbl 10",			String_MPLS_10 },		// MPLS Label 10
+	{ "%mpls", 0, "                                               MPLS labels 1-10                                                                   ",			String_MPLSs },			// All MPLS labels
+	//
+	{ "%bps", 0, "     bps",				String_bps },			// bps - bits per second
+	{ "%pps", 0, "     pps",				String_pps },			// pps - packets per second
+	{ "%bpp", 0, "   Bpp",					String_bpp },			// bpp - Bytes per package
+	{ "%eng", 0, " engine",					String_Engine },		// Engine Type/ID
+
+#ifdef NSEL
+// NSEL specifics
+	{ "%nfc",   0, "   Conn-ID",			String_nfc },				// NSEL connection ID
+	{ "%tevt",	0, "Event time             ",String_EventTime },		// NSEL Flow start time
+	{ "%evt",   0, " Event",				String_evt },				// NSEL event
+	{ "%xevt",  0, " XEvent",				String_xevt },				// NSEL xevent
+	{ "%msec",  0, "   Event Time",			String_msec},				// NSEL event time in msec
+	{ "%iacl",  0, "Ingress ACL                     ", String_iacl},	// NSEL ingress ACL
+	{ "%eacl",  0, "Egress ACL                      ", String_eacl},	// NSEL egress ACL
+	{ "%xsa",   0, "   X-late Src IP",		String_xlateSrcAddr},		// NSEL XLATE src IP
+	{ "%xda",   0, "   X-late Dst IP",		String_xlateDstAddr},		// NSEL XLATE dst IP
+	{ "%xsp",   0, "XsPort",				String_xlateSrcPort},		// NSEL XLATE src port
+	{ "%xdp",   0, "XdPort",				String_xlateDstPort},		// NSEL SLATE dst port
+	{ "%xsap", 1, "   X-Src IP Addr:Port ",	String_xlateSrcAddrPort },	// Xlate Source Address:Port
+	{ "%xdap", 1, "   X-Dst IP Addr:Port ", String_xlateDstAddrPort },	// Xlate Destination Address:Port
+	{ "%uname", 0, "UserName",				String_userName},			// NSEL user name
+
+// NEL
+// for v.1.6.10 compatibility, keep NEL specific addr/port format tokens
+	{ "%nevt",   0, " Event",				  String_evt },				// NAT event
+	{ "%vrf",    0, "  I-VRF-ID",			  String_ivrf },			// NAT ivrf ID - compatible
+	{ "%ivrf",   0, "  I-VRF-ID",			  String_ivrf },			// NAT ivrf ID
+	{ "%evrf",   0, "  E-VRF-ID",			  String_evrf },			// NAT ivrf ID
+	{ "%nsa",    0, "   X-late Src IP",	  String_xlateSrcAddr},		// NAT XLATE src IP
+	{ "%nda",    0, "   X-late Dst IP",	  String_xlateDstAddr},		// NAT XLATE dst IP
+	{ "%nsp",    0, "XsPort",				  String_xlateSrcPort},		// NAT XLATE src port
+	{ "%ndp",    0, "XdPort",				  String_xlateDstPort},		// NAT SLATE dst port
+	{ "%nsap",   1, "   X-Src IP Addr:Port ", String_xlateSrcAddrPort },// NAT Xlate Source Address:Port
+	{ "%ndap",   1, "   X-Dst IP Addr:Port ", String_xlateDstAddrPort },// NAT Xlate Destination Address:Port
+
+	// Port block allocation
+	{ "%pbstart", 0, "Pb-Start",			  String_PortBlockStart},	// Port block start
+	{ "%pbend",   0, "Pb-End",				  String_PortBlockEnd},		// Port block end
+	{ "%pbstep",  0, "Pb-Step",			  String_PortBlockStep},	// Port block step
+	{ "%pbsize",  0, "Pb-Size",			  String_PortBlockSize},	// Port block size
+#endif
+
+	// nprobe latency
+	{ "%cl", 0, "C Latency",				String_ClientLatency },	// client latency
+	{ "%sl", 0, "S latency",				String_ServerLatency },	// server latency
+	{ "%al", 0, "A latency",				String_AppLatency },	// app latency
+
+	{ NULL, 0, NULL, NULL }
+};
+#endif
+
+
 
 /* each of the tokens above must not generate output strings larger than this */
 #define MAX_STRING_LENGTH	256
@@ -401,12 +532,12 @@ char protolist[NumProtos][MAX_PROTO_STR] = {
 	"ENCOM",	// 14	EMCON
 	"XNET ",	// 15	Cross Net Debugger
 	"CHAOS",	// 16	Chaos
-	"UDP  ",	// 17	User Datagram 
+	"UDP  ",	// 17	User Datagram
 	"MUX  ",	// 18	Multiplexing
 	"DCN  ",	// 19	DCN Measurement Subsystems
 	"HMP  ",	// 20	Host Monitoring
 	"PRM  ",	// 21	Packet Radio Measurement
-	"XNS  ",	// 22	XEROX NS IDP 
+	"XNS  ",	// 22	XEROX NS IDP
 	"Trnk1",	// 23	Trunk-1
 	"Trnk2",	// 24	Trunk-2
 	"Leaf1",	// 25	Leaf-1
@@ -419,7 +550,7 @@ char protolist[NumProtos][MAX_PROTO_STR] = {
 	"MEINP",	// 32	MERIT Internodal Protocol
 	"DCCP ",	// 33	Datagram Congestion Control Protocol
 	"3PC  ",	// 34	Third Party Connect Protocol
-	"IDPR ",	// 35	Inter-Domain Policy Routing Protocol 
+	"IDPR ",	// 35	Inter-Domain Policy Routing Protocol
 	"XTP  ",	// 36	XTP
 	"DDP  ",	// 37	Datagram Delivery Protocol
 	"IDPR ",	// 38	IDPR Control Message Transport Proto
@@ -430,14 +561,14 @@ char protolist[NumProtos][MAX_PROTO_STR] = {
 	"Rte6 ",	// 43	Routing Header for IPv6
 	"Frag6",	// 44	Fragment Header for IPv6
 	"IDRP ",	// 45	Inter-Domain Routing Protocol
-	"RSVP ",	// 46	Reservation Protocol 
+	"RSVP ",	// 46	Reservation Protocol
 	"GRE  ",	// 47	General Routing Encapsulation
 	"MHRP ",	// 48	Mobile Host Routing Protocol
 	"BNA  ",	// 49	BNA
-	"ESP  ",    // 50	Encap Security Payload 
+	"ESP  ",    // 50	Encap Security Payload
 	"AH   ",    // 51	Authentication Header
-	"INLSP",    // 52	Integrated Net Layer Security  TUBA 
-	"SWIPE",    // 53	IP with Encryption 
+	"INLSP",    // 52	Integrated Net Layer Security  TUBA
+	"SWIPE",    // 53	IP with Encryption
 	"NARP ",    // 54	NBMA Address Resolution Protocol
 	"MOBIL",    // 55	IP Mobility
 	"TLSP ",    // 56	Transport Layer Security Protocol
@@ -453,13 +584,13 @@ char protolist[NumProtos][MAX_PROTO_STR] = {
 	"RVD  ",    // 66	MIT Remote Virtual Disk Protocol
 	"IPPC ",    // 67	Internet Pluribus Packet Core
 	"FS   ",    // 68	any distributed file system
-	"SATM ",    // 69	SATNET Monitoring 
+	"SATM ",    // 69	SATNET Monitoring
 	"VISA ",    // 70	VISA Protocol
 	"IPCV ",    // 71	Internet Packet Core Utility
 	"CPNX ",    // 72	Computer Protocol Network Executive
 	"CPHB ",    // 73	Computer Protocol Heart Beat
 	"WSN  ",    // 74	Wang Span Network
-	"PVP  ",    // 75	Packet Video Protocol 
+	"PVP  ",    // 75	Packet Video Protocol
 	"BSATM",    // 76	Backroom SATNET Monitoring
 	"SUNND",    // 77	SUN ND PROTOCOL-Temporary
 	"WBMON",    // 78	WIDEBAND Monitoring
@@ -486,7 +617,7 @@ char protolist[NumProtos][MAX_PROTO_STR] = {
 	"99   ",    // 99	any private encryption scheme
 	"GMTP ",    // 100	GMTP
 	"IFMP ",    // 101	Ipsilon Flow Management Protocol
-	"PNNI ",    // 102	PNNI over IP 
+	"PNNI ",    // 102	PNNI over IP
 	"PIM  ",	// 103	Protocol Independent Multicast
 	"ARIS ",    // 104	ARIS
 	"SCPS ",    // 105	SCPS
@@ -514,14 +645,14 @@ char protolist[NumProtos][MAX_PROTO_STR] = {
 	"CRUDP",    // 127	Combat Radio User Datagram
 	"128  ",    // 128	SSCOPMCE
 	"IPLT ",    // 129	IPLP
-	"SPS  ",    // 130	Secure Packet Shield 
+	"SPS  ",    // 130	Secure Packet Shield
 	"PIPE ",    // 131	Private IP Encapsulation within IP
 	"SCTP ",    // 132	Stream Control Transmission Protocol
 	"FC   ",    // 133	Fibre Channel
 	"134  ",    // 134	RSVP-E2E-IGNORE
 	"MHEAD",    // 135	Mobility Header
 	"UDP-L",    // 136	UDPLite
-	"MPLS "    // 137	MPLS-in-IP 
+	"MPLS "    // 137	MPLS-in-IP
 };
 
 static struct fwd_status_def_s {
@@ -593,11 +724,11 @@ int i;
 
 void Setv6Mode(int mode) {
 	long_v6 += mode;
-} 
+}
 
 int Getv6Mode(void) {
 	return long_v6;
-} 
+}
 
 void Proto_string(uint8_t protonum, char *protostr) {
 
@@ -616,7 +747,7 @@ int i, len;
 		return -1;
 
 	for ( i=0; i<NumProtos; i++ ) {
-		if ( strncasecmp(protostr,protolist[i], len) == 0 && 
+		if ( strncasecmp(protostr,protolist[i], len) == 0 &&
 			( protolist[i][len] == 0 || protolist[i][len] == ' ') )
 			return i;
 	}
@@ -630,7 +761,7 @@ int i;
 
 	i = 0;
 	while ( i < 256 ) {
-		if ( fwd_status[i] && strcasecmp(fwd_status[i], status) == 0 ) 
+		if ( fwd_status[i] && strcasecmp(fwd_status[i], status) == 0 )
 			return i;
 		i++;
 	}
@@ -646,7 +777,7 @@ char *Get_fwd_status_name(uint32_t id) {
 
 void format_file_block_header(void *header, char ** s, int tag) {
 data_block_header_t *h = (data_block_header_t *)header;
-	
+
 	snprintf(data_string,STRINGSIZE-1 ,""
 "File Block Header: \n"
 "  NumBlocks     =  %10u\n"
@@ -675,7 +806,7 @@ extension_map_t	*extension_map = r->map_ref;
 		uint64_t snet[2];
 		uint64_t dnet[2];
 
-		// remember IPs for network 
+		// remember IPs for network
 		snet[0] = r->v6.srcaddr[0];
 		snet[1] = r->v6.srcaddr[1];
 		dnet[0] = r->v6.dstaddr[0];
@@ -767,10 +898,10 @@ extension_map_t	*extension_map = r->map_ref;
 "  msec_last    =             %5u\n"
 "  src addr     =  %16s\n"
 "  dst addr     =  %16s\n"
-, 
-		r->flags, TestFlag(r->flags, FLAG_EVENT) ? "EVENT" : "FLOW", 
-		TestFlag(r->flags, FLAG_SAMPLED) ? "Sampled" : "Unsampled", r->exporter_sysid, r->size, r->first, 
-		datestr1, r->last, datestr2, r->msec_first, r->msec_last, 
+,
+		r->flags, TestFlag(r->flags, FLAG_EVENT) ? "EVENT" : "FLOW",
+		TestFlag(r->flags, FLAG_SAMPLED) ? "Sampled" : "Unsampled", r->exporter_sysid, r->size, r->first,
+		datestr1, r->last, datestr2, r->msec_first, r->msec_last,
 		as, ds );
 
 	_slen = strlen(data_string);
@@ -807,7 +938,7 @@ extension_map_t	*extension_map = r->map_ref;
 	_slen = strlen(data_string);
 	_s = data_string + _slen;
 	slen = STRINGSIZE - _slen;
-	
+
 	i = 0;
 	while ( (id = extension_map->ex_id[i]) != 0 ) {
 		if ( slen <= 20 ) {
@@ -868,7 +999,7 @@ extension_map_t	*extension_map = r->map_ref;
 				_slen = strlen(data_string);
 				_s = data_string + _slen;
 				slen = STRINGSIZE - _slen;
-	
+
 			break;
 			case EX_NEXT_HOP_v6:
 				as[0] = 0;
@@ -900,7 +1031,7 @@ extension_map_t	*extension_map = r->map_ref;
 				_slen = strlen(data_string);
 				_s = data_string + _slen;
 				slen = STRINGSIZE - _slen;
-	
+
 			break;
 			case EX_NEXT_HOP_BGP_v6:
 				as[0] = 0;
@@ -1017,7 +1148,7 @@ extension_map_t	*extension_map = r->map_ref;
 				_slen = strlen(data_string);
 				_s = data_string + _slen;
 				slen = STRINGSIZE - _slen;
-	
+
 			break;
 			case EX_ROUTER_IP_v6:
 				as[0] = 0;
@@ -1079,7 +1210,7 @@ extension_map_t	*extension_map = r->map_ref;
 				char *event = "UNKNOWN";
 				if ( r->event <= 5 ) {
 					event = NSEL_event_string[r->event];
-				} 
+				}
 				when = r->event_time / 1000LL;
 				ts = localtime(&when);
 				strftime(datestr3, 63, "%Y-%m-%d %H:%M:%S", ts);
@@ -1174,7 +1305,7 @@ extension_map_t	*extension_map = r->map_ref;
 				snprintf(_s, slen-1,
 "  Ingress ACL  =       0x%x/0x%x/0x%x\n"
 "  Egress ACL   =       0x%x/0x%x/0x%x\n"
-, r->ingress_acl_id[0], r->ingress_acl_id[1], r->ingress_acl_id[2], 
+, r->ingress_acl_id[0], r->ingress_acl_id[1], r->ingress_acl_id[2],
   r->egress_acl_id[0], r->egress_acl_id[1], r->egress_acl_id[2]);
 				_slen = strlen(data_string);
 				_s = data_string + _slen;
@@ -1226,8 +1357,8 @@ master_record_t *r = (master_record_t *)record;
     da[3] = r->v6.dstaddr[1] & 0xffffffffLL;
 
 	snprintf(data_string, STRINGSIZE-1 ,"%i|%u|%u|%u|%u|%u|%u|%u|%u|%u|%u|%u|%u|%u|%u|%u|%u|%u|%u|%u|%u|%u|%llu|%llu",
-		af, r->first, r->msec_first ,r->last, r->msec_last, r->prot, 
-		sa[0], sa[1], sa[2], sa[3], r->srcport, da[0], da[1], da[2], da[3], r->dstport, 
+		af, r->first, r->msec_first ,r->last, r->msec_last, r->prot,
+		sa[0], sa[1], sa[2], sa[3], r->srcport, da[0], da[1], da[2], da[3], r->dstport,
 		r->srcas, r->dstas, r->input, r->output,
 		r->tcp_flags, r->tos, (unsigned long long)r->dPkts, (unsigned long long)r->dOctets);
 
@@ -1238,7 +1369,7 @@ master_record_t *r = (master_record_t *)record;
 } // End of flow_record_pipe
 
 void flow_record_to_csv(void *record, char ** s, int tag) {
-char 		*_s, as[IP_STRING_LEN], ds[IP_STRING_LEN]; 
+char 		*_s, as[IP_STRING_LEN], ds[IP_STRING_LEN];
 char		proto_str[MAX_PROTO_STR], datestr1[64], datestr2[64], datestr3[64], flags_str[16];
 char		s_snet[IP_STRING_LEN], s_dnet[IP_STRING_LEN];
 ssize_t		slen, _slen;
@@ -1252,7 +1383,7 @@ master_record_t *r = (master_record_t *)record;
 		uint64_t snet[2];
 		uint64_t dnet[2];
 
-		// remember IPs for network 
+		// remember IPs for network
 		snet[0] = r->v6.srcaddr[0];
 		snet[1] = r->v6.srcaddr[1];
 		dnet[0] = r->v6.dstaddr[0];
@@ -1344,7 +1475,7 @@ master_record_t *r = (master_record_t *)record;
 	_s = data_string;
 	slen = STRINGSIZE;
 	snprintf(_s, slen-1, "%s,%s,%.3f,%s,%s,%u,%u,%s,%s,%u,%u,%llu,%llu,%llu,%llu",
-		datestr1, datestr2, duration, as,ds,r->srcport, r->dstport, proto_str, flags_str, 
+		datestr1, datestr2, duration, as,ds,r->srcport, r->dstport, proto_str, flags_str,
 		r->fwd_status, r->tos, (unsigned long long)r->dPkts, (unsigned long long)r->dOctets,
 		(long long unsigned)r->out_pkts, (long long unsigned)r->out_bytes
 	);
@@ -1352,7 +1483,7 @@ master_record_t *r = (master_record_t *)record;
 	_slen = strlen(data_string);
 	_s += _slen;
 	slen -= _slen;
-	
+
 	// EX_IO_SNMP_2:
 	// EX_IO_SNMP_4:
 	snprintf(_s, slen-1, ",%u,%u" , r->input, r->output);
@@ -1380,7 +1511,7 @@ master_record_t *r = (master_record_t *)record;
 		r->ip_nexthop.v6[1] = htonll(r->ip_nexthop.v6[1]);
 		inet_ntop(AF_INET6, r->ip_nexthop.v6, as, sizeof(as));
 		as[IP_STRING_LEN-1] = 0;
-	
+
 		snprintf(_s, slen-1, ",%s", as);
 		_slen = strlen(data_string);
 		_s = data_string + _slen;
@@ -1398,7 +1529,7 @@ master_record_t *r = (master_record_t *)record;
 		_s = data_string + _slen;
 		slen = STRINGSIZE - _slen;
 	}
-	
+
 	if ( (r->flags & FLAG_IPV6_NH ) != 0 ) { // IPv6
 		// EX_NEXT_HOP_BGP_v6:
 		as[0] = 0;
@@ -1406,7 +1537,7 @@ master_record_t *r = (master_record_t *)record;
 		r->bgp_nexthop.v6[1] = htonll(r->bgp_nexthop.v6[1]);
 		inet_ntop(AF_INET6, r->ip_nexthop.v6, as, sizeof(as));
 		as[IP_STRING_LEN-1] = 0;
-	
+
 		snprintf(_s, slen-1, ",%s", as);
 		_slen = strlen(data_string);
 		_s = data_string + _slen;
@@ -1440,7 +1571,7 @@ master_record_t *r = (master_record_t *)record;
 	EX_OUT_BYTES_8:
 	*/
 
-	// case EX_MAC_1: 
+	// case EX_MAC_1:
 	{
 		int i;
 		uint8_t mac1[6], mac2[6];
@@ -1453,14 +1584,14 @@ master_record_t *r = (master_record_t *)record;
 		}
 
 		snprintf(_s, slen-1, ",%.2x:%.2x:%.2x:%.2x:%.2x:%.2x,%.2x:%.2x:%.2x:%.2x:%.2x:%.2x",
-			mac1[5], mac1[4], mac1[3], mac1[2], mac1[1], mac1[0], 
+			mac1[5], mac1[4], mac1[3], mac1[2], mac1[1], mac1[0],
 			mac2[5], mac2[4], mac2[3], mac2[2], mac2[1], mac2[0] );
 		_slen = strlen(data_string);
 		_s = data_string + _slen;
 		slen = STRINGSIZE - _slen;
-	} 
+	}
 
-	// EX_MAC_2: 
+	// EX_MAC_2:
 	{
 		int i;
 		uint8_t mac1[6], mac2[6];
@@ -1473,24 +1604,24 @@ master_record_t *r = (master_record_t *)record;
 		}
 
 		snprintf(_s, slen-1, ",%.2x:%.2x:%.2x:%.2x:%.2x:%.2x,%.2x:%.2x:%.2x:%.2x:%.2x:%.2x",
-			mac1[5], mac1[4], mac1[3], mac1[2], mac1[1], mac1[0], 
+			mac1[5], mac1[4], mac1[3], mac1[2], mac1[1], mac1[0],
 			mac2[5], mac2[4], mac2[3], mac2[2], mac2[1], mac2[0] );
 		_slen = strlen(data_string);
 		_s = data_string + _slen;
 		slen = STRINGSIZE - _slen;
 	}
 
-	// EX_MPLS: 
+	// EX_MPLS:
 	{
 		unsigned int i;
 		for ( i=0; i<10; i++ ) {
-			snprintf(_s, slen-1, ",%u-%1u-%1u", 
+			snprintf(_s, slen-1, ",%u-%1u-%1u",
 				r->mpls_label[i] >> 4 , (r->mpls_label[i] & 0xF ) >> 1, r->mpls_label[i] & 1 );
 			_slen = strlen(data_string);
 			_s = data_string + _slen;
 			slen = STRINGSIZE - _slen;
 		}
-	} 
+	}
 
 	{
 		double f1, f2, f3;
@@ -1504,7 +1635,7 @@ master_record_t *r = (master_record_t *)record;
 		_slen = strlen(data_string);
 		_s = data_string + _slen;
 		slen = STRINGSIZE - _slen;
-	} 
+	}
 
 
 	// EX_ROUTER_IP_v4:
@@ -1515,7 +1646,7 @@ master_record_t *r = (master_record_t *)record;
 		r->ip_router.v6[1] = htonll(r->ip_router.v6[1]);
 		inet_ntop(AF_INET6, r->ip_router.v6, as, sizeof(as));
 		as[IP_STRING_LEN-1] = 0;
-	
+
 		snprintf(_s, slen-1, ",%s", as);
 		_slen = strlen(data_string);
 		_s = data_string + _slen;
@@ -1550,7 +1681,7 @@ master_record_t *r = (master_record_t *)record;
 	when = r->received / 1000LL;
  	ts = localtime(&when);
  	strftime(datestr3, 63, ",%Y-%m-%d %H:%M:%S", ts);
- 
+
  	snprintf(_s, slen-1, "%s.%03llu", datestr3, (long long unsigned)r->received % 1000LL);
  	        _slen = strlen(data_string);
  	        _s = data_string + _slen;
@@ -1562,6 +1693,45 @@ master_record_t *r = (master_record_t *)record;
 
 
 } // End of flow_record_to_csv
+
+
+#ifdef ZMQ
+void flow_record_to_json(void *record, char ** s, int tag) {
+	master_record_t *r = (master_record_t *)record;
+
+	char *_s = NULL, buf[MAX_STRING_LENGTH];
+	size_t s_size = 0;
+	int i = 0;
+	json_object * jobj = json_object_new_object();
+
+	duration = r->last - r->first;
+	duration += ((double)r->msec_last - (double)r->msec_first) / 1000.0;
+
+	for (i=0;;i++) {
+		if (!json_format_token_list[i].token) {
+			break;
+		} else {
+			json_format_token_list[i].string_function(r, buf);
+		}
+		json_object_object_add(
+			jobj,
+			json_format_token_list[i].token + 1,
+			json_object_new_string(buf)
+		);
+	}
+
+	const char *_json_s = json_object_to_json_string(jobj);
+	s_size =  strlen(_json_s);
+	_s = (char *) malloc(sizeof(char) * (s_size + 1));
+	strncpy(_s, _json_s, s_size);
+
+	// decrement reference count
+	while(json_object_put(jobj) != 1);
+
+	_s[s_size] = '\0';
+	*s = _s;
+} // End of flow_record_to_json
+#endif
 
 void flow_record_to_null(void *record, char ** s, int tag) {
 	// empty - do not list any flows
@@ -1585,16 +1755,16 @@ int	i, index;
 	i = 0;
 	for ( index=0; index<format_index; index++ ) {
 		int j = 0;
-		while ( format_list[index][j] && i < STRINGSIZE ) 
+		while ( format_list[index][j] && i < STRINGSIZE )
 			data_string[i++] = format_list[index][j++];
 	}
-	if ( i < STRINGSIZE ) 
+	if ( i < STRINGSIZE )
 		data_string[i] = '\0';
 
 	data_string[STRINGSIZE-1] = '\0';
 	*s = data_string;
 
-} // End of format_special 
+} // End of format_special
 
 char *get_record_header(void) {
 	return header_string;
@@ -1702,7 +1872,7 @@ int	i, remaining;
 	scale = plain_numbers == 0;
 
 	InitFormatParser();
-	
+
 	s = strdup(format);
 	if ( !s ) {
 		fprintf(stderr, "Memory allocation error in %s line %d: %s\n", __FILE__, __LINE__, strerror(errno) );
@@ -1790,8 +1960,8 @@ char	*p, *q;
 	*p++ = '.';
 	*p++ = '.';
 	q = s + len - 7;
-	while ( *q ) { 
-		*p++ = *q++; 
+	while ( *q ) {
+		*p++ = *q++;
 	}
 	*p = 0;
 
@@ -1807,6 +1977,24 @@ static inline void ICMP_Port_decode(master_record_t *r, char *string) {
 	string[MAX_STRING_LENGTH-1] = '\0';
 
 } // End of ICMP_Port_decode
+
+
+#ifdef ZMQ
+static void JSONDateTimeEpoch(master_record_t *r, char *string) {
+	snprintf(string, MAX_STRING_LENGTH-2, "%lu.%03u", r->first, r->msec_first);
+	string[MAX_STRING_LENGTH-1] = '\0';
+} // End of JSONDateTimeEpoch
+
+static void JSONDateTimeEpochLastSeen(master_record_t *r, char *string) {
+	snprintf(string, MAX_STRING_LENGTH-2, "%lu.%03u", r->last, r->msec_last);
+	string[MAX_STRING_LENGTH-1] = '\0';
+} // End of JSONDateTimeEpochLastSeen
+
+static void JSONDateTimeEpochReceived(master_record_t *r, char *string) {
+	snprintf(string, MAX_STRING_LENGTH-2, "%llu", r->received / 1000LL);
+	string[MAX_STRING_LENGTH-1] = '\0';
+} // End of JSONDateTimeEpochLastSeen
+#endif
 
 /* functions, which create the individual strings for the output line */
 static void String_FirstSeen(master_record_t *r, char *string) {
@@ -1902,7 +2090,7 @@ char tmp_str[IP_STRING_LEN];
 		inet_ntop(AF_INET, &ip, tmp_str, sizeof(tmp_str));
 	}
 	tmp_str[IP_STRING_LEN-1] = 0;
-	if ( long_v6 ) 
+	if ( long_v6 )
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%39s", tag_string, tmp_str);
 	else
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%16s", tag_string, tmp_str);
@@ -1934,7 +2122,7 @@ char 	tmp_str[IP_STRING_LEN], portchar;
 	}
 	tmp_str[IP_STRING_LEN-1] = 0;
 
-	if ( long_v6 ) 
+	if ( long_v6 )
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%39s%c%-5i", tag_string, tmp_str, portchar, r->srcport);
 	else
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%16s%c%-5i", tag_string, tmp_str, portchar, r->srcport);
@@ -1962,7 +2150,7 @@ char tmp_str[IP_STRING_LEN];
 		inet_ntop(AF_INET, &ip, tmp_str, sizeof(tmp_str));
 	}
 	tmp_str[IP_STRING_LEN-1] = 0;
-	if ( long_v6 ) 
+	if ( long_v6 )
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%39s", tag_string, tmp_str);
 	else
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%16s", tag_string, tmp_str);
@@ -1992,7 +2180,7 @@ char tmp_str[IP_STRING_LEN];
 		inet_ntop(AF_INET, &ip, tmp_str, sizeof(tmp_str));
 	}
 	tmp_str[IP_STRING_LEN-1] = 0;
-	if ( long_v6 ) 
+	if ( long_v6 )
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%39s", tag_string, tmp_str);
 	else
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%16s", tag_string, tmp_str);
@@ -2021,7 +2209,7 @@ char tmp_str[IP_STRING_LEN];
 		inet_ntop(AF_INET, &ip, tmp_str, sizeof(tmp_str));
 	}
 	tmp_str[IP_STRING_LEN-1] = 0;
-	if ( long_v6 ) 
+	if ( long_v6 )
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%39s", tag_string, tmp_str);
 	else
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%16s", tag_string, tmp_str);
@@ -2050,7 +2238,7 @@ char tmp_str[IP_STRING_LEN];
 		inet_ntop(AF_INET, &ip, tmp_str, sizeof(tmp_str));
 	}
 	tmp_str[IP_STRING_LEN-1] = 0;
-	if ( long_v6 ) 
+	if ( long_v6 )
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%39s", tag_string, tmp_str);
 	else
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%16s", tag_string, tmp_str);
@@ -2085,7 +2273,7 @@ char 	icmp_port[MAX_STRING_LENGTH];
 	tmp_str[IP_STRING_LEN-1] = 0;
 	ICMP_Port_decode(r, icmp_port);
 
-	if ( long_v6 ) 
+	if ( long_v6 )
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%39s%c%-5s", tag_string, tmp_str, portchar, icmp_port);
 	else
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%16s%c%-5s", tag_string, tmp_str, portchar, icmp_port);
@@ -2115,7 +2303,7 @@ char tmp_str[IP_STRING_LEN];
 		inet_ntop(AF_INET, &ip, tmp_str, sizeof(tmp_str));
 	}
 	tmp_str[IP_STRING_LEN-1] = 0;
-	if ( long_v6 ) 
+	if ( long_v6 )
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%39s/%-2u", tag_string, tmp_str, r->src_mask );
 	else
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%16s/%-2u", tag_string, tmp_str, r->src_mask );
@@ -2146,7 +2334,7 @@ char tmp_str[IP_STRING_LEN];
 		inet_ntop(AF_INET, &ip, tmp_str, sizeof(tmp_str));
 	}
 	tmp_str[IP_STRING_LEN-1] = 0;
-	if ( long_v6 ) 
+	if ( long_v6 )
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%39s/%-2u", tag_string, tmp_str, r->dst_mask );
 	else
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%16s/%-2u", tag_string, tmp_str, r->dst_mask );
@@ -2406,7 +2594,7 @@ uint8_t mac[6];
 
 static void String_MPLS_1(master_record_t *r, char *string) {
 
-	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u", 
+	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u",
 		r->mpls_label[0] >> 4 , (r->mpls_label[0] & 0xF ) >> 1, r->mpls_label[0] & 1);
 	string[MAX_STRING_LENGTH-1] = '\0';
 
@@ -2414,7 +2602,7 @@ static void String_MPLS_1(master_record_t *r, char *string) {
 
 static void String_MPLS_2(master_record_t *r, char *string) {
 
-	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u", 
+	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u",
 		r->mpls_label[1] >> 4 , (r->mpls_label[1] & 0xF ) >> 1, r->mpls_label[1] & 1);
 	string[MAX_STRING_LENGTH-1] = '\0';
 
@@ -2422,7 +2610,7 @@ static void String_MPLS_2(master_record_t *r, char *string) {
 
 static void String_MPLS_3(master_record_t *r, char *string) {
 
-	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u", 
+	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u",
 		r->mpls_label[2] >> 4 , (r->mpls_label[2] & 0xF ) >> 1, r->mpls_label[2] & 1);
 	string[MAX_STRING_LENGTH-1] = '\0';
 
@@ -2430,7 +2618,7 @@ static void String_MPLS_3(master_record_t *r, char *string) {
 
 static void String_MPLS_4(master_record_t *r, char *string) {
 
-	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u", 
+	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u",
 		r->mpls_label[3] >> 4 , (r->mpls_label[3] & 0xF ) >> 1, r->mpls_label[3] & 1);
 	string[MAX_STRING_LENGTH-1] = '\0';
 
@@ -2438,7 +2626,7 @@ static void String_MPLS_4(master_record_t *r, char *string) {
 
 static void String_MPLS_5(master_record_t *r, char *string) {
 
-	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u", 
+	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u",
 		r->mpls_label[4] >> 4 , (r->mpls_label[4] & 0xF ) >> 1, r->mpls_label[4] & 1);
 	string[MAX_STRING_LENGTH-1] = '\0';
 
@@ -2446,7 +2634,7 @@ static void String_MPLS_5(master_record_t *r, char *string) {
 
 static void String_MPLS_6(master_record_t *r, char *string) {
 
-	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u", 
+	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u",
 		r->mpls_label[5] >> 4 , (r->mpls_label[5] & 0xF ) >> 1, r->mpls_label[5] & 1);
 	string[MAX_STRING_LENGTH-1] = '\0';
 
@@ -2454,7 +2642,7 @@ static void String_MPLS_6(master_record_t *r, char *string) {
 
 static void String_MPLS_7(master_record_t *r, char *string) {
 
-	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u", 
+	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u",
 		r->mpls_label[6] >> 4 , (r->mpls_label[6] & 0xF ) >> 1, r->mpls_label[6] & 1);
 	string[MAX_STRING_LENGTH-1] = '\0';
 
@@ -2462,7 +2650,7 @@ static void String_MPLS_7(master_record_t *r, char *string) {
 
 static void String_MPLS_8(master_record_t *r, char *string) {
 
-	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u", 
+	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u",
 		r->mpls_label[7] >> 4 , (r->mpls_label[7] & 0xF ) >> 1, r->mpls_label[7] & 1);
 	string[MAX_STRING_LENGTH-1] = '\0';
 
@@ -2470,7 +2658,7 @@ static void String_MPLS_8(master_record_t *r, char *string) {
 
 static void String_MPLS_9(master_record_t *r, char *string) {
 
-	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u", 
+	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u",
 		r->mpls_label[8] >> 4 , (r->mpls_label[8] & 0xF ) >> 1, r->mpls_label[8] & 1);
 	string[MAX_STRING_LENGTH-1] = '\0';
 
@@ -2478,7 +2666,7 @@ static void String_MPLS_9(master_record_t *r, char *string) {
 
 static void String_MPLS_10(master_record_t *r, char *string) {
 
-	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u", 
+	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u",
 		r->mpls_label[9] >> 4 , (r->mpls_label[9] & 0xF ) >> 1, r->mpls_label[9] & 1);
 	string[MAX_STRING_LENGTH-1] = '\0';
 
@@ -2486,7 +2674,7 @@ static void String_MPLS_10(master_record_t *r, char *string) {
 
 static void String_MPLSs(master_record_t *r, char *string) {
 
-	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u ", 
+	snprintf(string, MAX_STRING_LENGTH-1 ,"%8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u %8u-%1u-%1u ",
 		r->mpls_label[0] >> 4 , (r->mpls_label[0] & 0xF ) >> 1, r->mpls_label[0] & 1,
 		r->mpls_label[1] >> 4 , (r->mpls_label[1] & 0xF ) >> 1, r->mpls_label[1] & 1,
 		r->mpls_label[2] >> 4 , (r->mpls_label[2] & 0xF ) >> 1, r->mpls_label[2] & 1,
@@ -2567,13 +2755,13 @@ char s[NUMBER_STRING_SIZE];
 } // End of String_Duration
 
 static void String_bpp(master_record_t *r, char *string) {
-uint32_t 	Bpp; 
+uint32_t 	Bpp;
 
 	string[MAX_STRING_LENGTH-1] = '\0';
 
-	if ( r->dPkts ) 
+	if ( r->dPkts )
 		Bpp = r->dOctets / r->dPkts;			// Bytes per Packet
-	else 
+	else
 		Bpp = 0;
 	snprintf(string, MAX_STRING_LENGTH-1 ,"%6u", Bpp);
 	string[MAX_STRING_LENGTH-1] = '\0';
@@ -2621,7 +2809,7 @@ static void String_evt(master_record_t *r, char *string) {
 				break;
 			default:
 				snprintf(string, MAX_STRING_LENGTH-1 ,"%6s", "UNKNOW");
-		}			
+		}
 	} else {
 		switch(r->event) {
 			case 0:
@@ -2635,7 +2823,7 @@ static void String_evt(master_record_t *r, char *string) {
 				break;
 			default:
 				snprintf(string, MAX_STRING_LENGTH-1 ,"%6s", "UNKNOW");
-		}			
+		}
 	}
 	string[MAX_STRING_LENGTH-1] = '\0';
 
@@ -2674,7 +2862,7 @@ static void String_msec(master_record_t *r, char *string) {
 	snprintf(string, MAX_STRING_LENGTH-1,"%13llu",  etime);
 	string[MAX_STRING_LENGTH-1] = '\0';
 
-} // End of String_msec 
+} // End of String_msec
 
 static void String_iacl(master_record_t *r, char *string) {
 
@@ -2712,7 +2900,7 @@ char tmp_str[IP_STRING_LEN];
 		inet_ntop(AF_INET, &ip, tmp_str, sizeof(tmp_str));
 	}
 	tmp_str[IP_STRING_LEN-1] = 0;
-	if ( long_v6 ) 
+	if ( long_v6 )
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%39s", tag_string, tmp_str);
 	else
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%16s", tag_string, tmp_str);
@@ -2740,7 +2928,7 @@ char tmp_str[IP_STRING_LEN];
 		inet_ntop(AF_INET, &ip, tmp_str, sizeof(tmp_str));
 	}
 	tmp_str[IP_STRING_LEN-1] = 0;
-	if ( long_v6 ) 
+	if ( long_v6 )
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%39s", tag_string, tmp_str);
 	else
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%16s", tag_string, tmp_str);
@@ -2787,7 +2975,7 @@ char 	tmp_str[IP_STRING_LEN], portchar;
 	}
 	tmp_str[IP_STRING_LEN-1] = 0;
 
-	if ( long_v6 ) 
+	if ( long_v6 )
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%39s%c%-5i", tag_string, tmp_str, portchar, r->xlate_src_port);
 	else
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%16s%c%-5i", tag_string, tmp_str, portchar, r->xlate_src_port);
@@ -2820,7 +3008,7 @@ char 	tmp_str[IP_STRING_LEN], portchar;
 	}
 	tmp_str[IP_STRING_LEN-1] = 0;
 
-	if ( long_v6 ) 
+	if ( long_v6 )
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%39s%c%-5i", tag_string, tmp_str, portchar, r->xlate_dst_port);
 	else
 		snprintf(string, MAX_STRING_LENGTH-1, "%s%16s%c%-5i", tag_string, tmp_str, portchar, r->xlate_dst_port);
@@ -2832,7 +3020,7 @@ char 	tmp_str[IP_STRING_LEN], portchar;
 
 static void String_userName(master_record_t *r, char *string) {
 
-	if ( r->username[0] == '\0' ) 
+	if ( r->username[0] == '\0' )
 		snprintf(string, MAX_STRING_LENGTH-1 ,"%s", "<empty>");
 	else
 		snprintf(string, MAX_STRING_LENGTH-1 ,"%s", r->username);
