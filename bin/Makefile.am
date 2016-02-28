@@ -30,12 +30,12 @@ AM_CPPFLAGS = $(DEPS_CFLAGS)
 LDADD = $(DEPS_LIBS)
 
 #Add extra debug info for gdb
-AM_CFLAGS = -ggdb 
+AM_CFLAGS = -ggdb
 
 # libnfdump sources
-common =  nf_common.c nf_common.h 
+common =  nf_common.c nf_common.h
 util = util.c util.h
-filelzo = minilzo.c minilzo.h lzoconf.h lzodefs.h nffile.c nffile.h nfx.c nfx.h nfxstat.h nfxstat.c 
+filelzo = minilzo.c minilzo.h lzoconf.h lzodefs.h nffile.c nffile.h nfx.c nfx.h nfxstat.h nfxstat.c
 nflist = flist.c flist.h fts_compat.c fts_compat.h
 filter = grammar.y scanner.l nftree.c nftree.h ipconv.c ipconv.h rbtree.h
 exporter = exporter.c exporter.h
@@ -60,7 +60,7 @@ launch = launch.c launch.h
 lib_LTLIBRARIES = libnfdump.la
 libnfdump_la_SOURCES = $(common) $(util) $(filelzo) $(nflist) $(filter) $(exporter)
 #libnfdump_la_LIBADD = -lz
-libnfdump_la_LDFLAGS = -release 1.6.14 -shared 
+libnfdump_la_LDFLAGS = -release 1.6.14 -shared
 
 
 nfdump_SOURCES = nfdump.c nfdump.h nfstat.c nfstat.h nfexport.c nfexport.h  \
@@ -71,43 +71,49 @@ nfreplay_SOURCES = nfreplay.c $(nfprof) \
 	$(nfnet) $(collector) $(nfv1) $(nfv9) $(nfv5v7) $(ipfix)
 nfreplay_LDADD = -lnfdump
 
-nfprofile_SOURCES = nfprofile.c profile.c profile.h $(nfstatfile) 
+nfprofile_SOURCES = nfprofile.c profile.c profile.h $(nfstatfile)
 nfprofile_LDADD = -lnfdump -lrrd
 
 nftrack_SOURCES = ../extra/nftrack/nftrack.c \
 	../extra/nftrack/nftrack_rrd.c ../extra/nftrack/nftrack_rrd.h \
-	../extra/nftrack/nftrack_stat.c ../extra/nftrack/nftrack_stat.h 
+	../extra/nftrack/nftrack_stat.c ../extra/nftrack/nftrack_stat.h
 nftrack_CFLAGS = -I ../extra/nftrack
 nftrack_LDADD = -lnfdump -lrrd
 
 nfcapd_SOURCES = nfcapd.c \
 	$(nfstatfile) $(launch) \
 	$(nfnet) $(collector) $(nfv1) $(nfv5v7) $(nfv9) $(ipfix) $(bookkeeper) $(expire)
-nfcapd_LDADD = -lnfdump 
+nfcapd_LDADD = -lnfdump
 
 nfpcapd_SOURCES = nfpcapd.c \
 	$(pcaproc) $(netflow_pcap) \
 	$(nfstatfile) $(launch) \
 	$(nfnet) $(collector) $(bookkeeper) $(expire) $(content)
-nfpcapd_LDADD = -lnfdump 
+nfpcapd_LDADD = -lnfdump
 
 if READPCAP
 nfcapd_CFLAGS = -DPCAP
 nfcapd_SOURCES += pcap_reader.c pcap_reader.h
-nfcapd_LDADD += -lpcap 
+nfcapd_LDADD += -lpcap
+endif
+
+if ZMQPUB
+nfcapd_CFLAGS = -DZMQ
+nfcapd_SOURCES += zhelpers.h
+nfcapd_LDADD += -lzmq -ljson-c
 endif
 
 if BUILDNFPCAPD
 bin_PROGRAMS += nfpcapd
 nfpcapd_CFLAGS = -D_BSD_SOURCE
-nfpcapd_LDADD += -lpcap 
+nfpcapd_LDADD += -lpcap
 nfpcapd_LDFLAGS = -pthread
 endif
 
 sfcapd_SOURCES = sfcapd.c sflow.c sflow.h sflow_proto.h \
 	$(nfstatfile) $(launch) \
 	$(nfnet) $(collector) $(bookkeeper) $(expire)
-sfcapd_LDADD = -lnfdump 
+sfcapd_LDADD = -lnfdump
 
 if READPCAP
 sfcapd_CFLAGS = -DPCAP
@@ -115,30 +121,30 @@ sfcapd_SOURCES += pcap_reader.c pcap_reader.h
 sfcapd_LDADD += -lpcap
 endif
 
-nfreader_SOURCES = nfreader.c 
-nfreader_LDADD = -lnfdump 
+nfreader_SOURCES = nfreader.c
+nfreader_LDADD = -lnfdump
 
 nfanon_SOURCES = nfanon.c $(anon)
-nfanon_LDADD = -lnfdump 
+nfanon_LDADD = -lnfdump
 
-nfgen_SOURCES = nfgen.c 
-nfgen_LDADD = -lnfdump 
+nfgen_SOURCES = nfgen.c
+nfgen_LDADD = -lnfdump
 
 nfexpire_SOURCES = nfexpire.c \
 	$(bookkeeper) $(expire) $(nfstatfile)
 nfexpire_LDADD = -lnfdump @FTS_OBJ@
 
-nftest_SOURCES = nftest.c 
-nftest_LDADD = -lnfdump 
+nftest_SOURCES = nftest.c
+nftest_LDADD = -lnfdump
 nftest_DEPENDENCIES = nfgen
 
 if FT2NFDUMP
-ft2nfdump_SOURCES = ft2nfdump.c 
+ft2nfdump_SOURCES = ft2nfdump.c
 ft2nfdump_CFLAGS = @FT_INCLUDES@
 ft2nfdump_LDADD = -lnfdump -lft -lz
 ft2nfdump_LDADD += @FT_LDFLAGS@
 endif
 
-check_DIST = inline.c collector_inline.c nffile_inline.c nfdump_inline.c heapsort_inline.c applybits_inline.c 
+check_DIST = inline.c collector_inline.c nffile_inline.c nfdump_inline.c heapsort_inline.c applybits_inline.c
 check_DIST += test.sh nfdump.test.out parse_csv.pl AddExtension.txt	nfdump.test.diff
 CLEANFILES = lex.yy.c grammar.c grammar.h scanner.c scanner.h $(check_PROGRAMS)
