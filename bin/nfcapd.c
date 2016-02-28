@@ -4,43 +4,43 @@
  *  Copyright (c) 2009, Peter Haag
  *  Copyright (c) 2004-2008, SWITCH - Teleinformatikdienste fuer Lehre und Forschung
  *  All rights reserved.
- *  
- *  Redistribution and use in source and binary forms, with or without 
+ *
+ *  Redistribution and use in source and binary forms, with or without
  *  modification, are permitted provided that the following conditions are met:
- *  
- *   * Redistributions of source code must retain the above copyright notice, 
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
  *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright notice, 
- *     this list of conditions and the following disclaimer in the documentation 
+ *   * Redistributions in binary form must reproduce the above copyright notice,
+ *     this list of conditions and the following disclaimer in the documentation
  *     and/or other materials provided with the distribution.
- *   * Neither the name of the author nor the names of its contributors may be 
- *     used to endorse or promote products derived from this software without 
+ *   * Neither the name of the author nor the names of its contributors may be
+ *     used to endorse or promote products derived from this software without
  *     specific prior written permission.
- *  
- *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" 
- *  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE 
- *  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE 
- *  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE 
- *  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR 
- *  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF 
- *  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- *  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN 
- *  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
- *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ *  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ *  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ *  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ *  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ *  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ *  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ *  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ *  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
- *  
+ *
  *  Author: peter
  *
  */
 
 /*
- * Because NetFlow export uses UDP to send export datagrams, it is possible 
- * for datagrams to be lost. To determine whether flow export information has 
- * been lost, Version 5, Version 7, and Version 8 headers contain a flow 
- * sequence number. The sequence number is equal to the sequence number of the 
- * previous datagram plus the number of flows in the previous datagram. After 
- * receiving a new datagram, the receiving application can subtract the expected 
- * sequence number from the sequence number in the header to derive the number 
+ * Because NetFlow export uses UDP to send export datagrams, it is possible
+ * for datagrams to be lost. To determine whether flow export information has
+ * been lost, Version 5, Version 7, and Version 8 headers contain a flow
+ * sequence number. The sequence number is equal to the sequence number of the
+ * previous datagram plus the number of flows in the previous datagram. After
+ * receiving a new datagram, the receiving application can subtract the expected
+ * sequence number from the sequence number in the header to derive the number
  * of missed flows.
  */
 
@@ -69,6 +69,10 @@
 #include <sys/mman.h>
 #include <string.h>
 #include <dirent.h>
+
+#ifdef ZMQ
+#include "zhelpers.h"
+#endif
 
 #ifdef PCAP
 #include "pcap_reader.h"
@@ -148,7 +152,7 @@ static void daemonize(void);
 
 static void SetPriv(char *userid, char *groupid );
 
-static void run(packet_function_t receive_packet, int socket, send_peer_t peer, 
+static void run(packet_function_t receive_packet, int socket, send_peer_t peer,
 	time_t twin, time_t t_begin, int report_seq, int use_subdirs, char *time_extension, int compress, int do_xstat);
 
 /* Functions */
@@ -166,7 +170,7 @@ static void usage(char *name) {
 					"-S subdir\tSub directory format. see nfcapd(1) for format\n"
 					"-I Ident\tset the ident string for stat file. (default 'none')\n"
 					"-H Add port histogram data to flow file.(default 'no')\n"
-					"-n Ident,IP,logdir\tAdd this flow source - multiple streams\n" 
+					"-n Ident,IP,logdir\tAdd this flow source - multiple streams\n"
 					"-P pidfile\tset the PID file\n"
 					"-R IP[/port]\tRepeat incoming packets to IP address/port\n"
 					"-s rate\tset default sampling rate (default 1)\n"
@@ -176,6 +180,7 @@ static void usage(char *name) {
 					"-B bufflen\tSet socket buffer to bufflen bytes\n"
 					"-e\t\tExpire data at each cycle.\n"
 					"-D\t\tFork to background\n"
+					"-q\t\tSet ZMQ address.\n"
 					"-E\t\tPrint extended format of netflow data. for debugging purpose only.\n"
 					"-T\t\tInclude extension tags in records.\n"
 					"-4\t\tListen on IPv4 (default).\n"
@@ -198,7 +203,7 @@ pid_t ret;
 
 		// wait for launcher to teminate
 		for ( i=0; i<LAUNCHER_TIMEOUT; i++ ) {
-			if ( !launcher_alive ) 
+			if ( !launcher_alive )
 				break;
 			sleep(1);
 		}
@@ -359,7 +364,12 @@ int		err;
 #include "nffile_inline.c"
 #include "collector_inline.c"
 
-static void run(packet_function_t receive_packet, int socket, send_peer_t peer, 
+#ifdef ZMQ
+void * context = NULL;
+void * publisher = NULL;
+#endif
+
+static void run(packet_function_t receive_packet, int socket, send_peer_t peer,
 	time_t twin, time_t t_begin, int report_seq, int use_subdirs, char *time_extension, int compress, int do_xstat) {
 common_flow_header_t	*nf_header;
 FlowSource_t			*fs;
@@ -399,7 +409,7 @@ srecord_t	*commbuff;
 		}
 		if ( do_xstat ) {
 			fs->xstat = InitXStat(fs->nffile);
-			if ( !fs->xstat ) 
+			if ( !fs->xstat )
 				return;
 		}
 		// init vars
@@ -424,7 +434,7 @@ srecord_t	*commbuff;
 	 * Main processing loop:
 	 * this loop, continues until done = 1, set by the signal handler
 	 * The while loop will be breaked by the periodic file renaming code
-	 * for proper cleanup 
+	 * for proper cleanup
 	 */
 	while ( 1 ) {
 		struct timeval tv;
@@ -432,15 +442,15 @@ srecord_t	*commbuff;
 		/* read next bunch of data into beginn of input buffer */
 		if ( !done) {
 #ifdef PCAP
-			// Debug code to read from pcap file, or from socket 
-			cnt = receive_packet(socket, in_buff, NETWORK_INPUT_BUFF_SIZE , 0, 
+			// Debug code to read from pcap file, or from socket
+			cnt = receive_packet(socket, in_buff, NETWORK_INPUT_BUFF_SIZE , 0,
 						(struct sockaddr *)&nf_sender, &nf_sender_size);
-						
+
 			// in case of reading from file EOF => -2
-			if ( cnt == -2 ) 
+			if ( cnt == -2 )
 				done = 1;
 #else
-			cnt = recvfrom (socket, in_buff, NETWORK_INPUT_BUFF_SIZE , 0, 
+			cnt = recvfrom (socket, in_buff, NETWORK_INPUT_BUFF_SIZE , 0,
 						(struct sockaddr *)&nf_sender, &nf_sender_size);
 #endif
 
@@ -478,7 +488,7 @@ srecord_t	*commbuff;
 				if ( !subdir ) {
 					// failed to generate subdir path - put flows into base directory
 					LogError("Failed to create subdir path!");
-			
+
 					// failed to generate subdir path - put flows into base directory
 					subdir = NULL;
 					snprintf(subfilename, 63, "nfcapd.%s", fmt);
@@ -510,11 +520,11 @@ srecord_t	*commbuff;
 						LogError("Ident: %s, failed to write output buffer to disk: '%s'" , fs->Ident, strerror(errno));
 				} // else - no new records in current block
 
-	
+
 				// prepare filename
 				snprintf(nfcapd_filename, MAXPATHLEN-1, "%s/%s", fs->datadir, subfilename);
 				nfcapd_filename[MAXPATHLEN-1] = '\0';
-	
+
 				// update stat record
 				// if no flows were collected, fs->last_seen is still 0
 				// set first_seen to start of this time slot, with twin window size.
@@ -528,7 +538,7 @@ srecord_t	*commbuff;
 				nffile->stat_record->msec_last	= fs->last_seen - nffile->stat_record->last_seen*1000;
 
 				if ( fs->xstat ) {
-					if ( WriteExtraBlock(nffile, fs->xstat->block_header ) <= 0 ) 
+					if ( WriteExtraBlock(nffile, fs->xstat->block_header ) <= 0 )
 						LogError("Ident: %s, failed to write xstat buffer to disk: '%s'" , fs->Ident, strerror(errno));
 
 					ResetPortHistogram(fs->xstat->port_histogram);
@@ -568,8 +578,8 @@ srecord_t	*commbuff;
 				}
 
 				// log stats
-				LogInfo("Ident: '%s' Flows: %llu, Packets: %llu, Bytes: %llu, Sequence Errors: %u, Bad Packets: %u", 
-					fs->Ident, (unsigned long long)nffile->stat_record->numflows, (unsigned long long)nffile->stat_record->numpackets, 
+				LogInfo("Ident: '%s' Flows: %llu, Packets: %llu, Bytes: %llu, Sequence Errors: %u, Bad Packets: %u",
+					fs->Ident, (unsigned long long)nffile->stat_record->numflows, (unsigned long long)nffile->stat_record->numpackets,
 					(unsigned long long)nffile->stat_record->numbytes, nffile->stat_record->sequence_failure, fs->bad_packets);
 
 				// reset stats
@@ -599,15 +609,15 @@ srecord_t	*commbuff;
 			// All flow sources updated - signal launcher if required
 			if ( launcher_pid ) {
 				// Signal launcher
-		
+
 				// prepare filename for %f expansion
 				strncpy(commbuff->fname, subfilename, FNAME_SIZE-1);
 				commbuff->fname[FNAME_SIZE-1] = 0;
-				snprintf(commbuff->tstring, 16, "%i%02i%02i%02i%02i", 
+				snprintf(commbuff->tstring, 16, "%i%02i%02i%02i%02i",
 					now->tm_year + 1900, now->tm_mon + 1, now->tm_mday, now->tm_hour, now->tm_min);
 				commbuff->tstring[15] = 0;
 				commbuff->tstamp = t_start;
-				if ( subdir ) 
+				if ( subdir )
 					strncpy(commbuff->subdir, subdir, FNAME_SIZE);
 				else
 					commbuff->subdir[0] = '\0';
@@ -615,11 +625,11 @@ srecord_t	*commbuff;
 				if ( launcher_alive ) {
 					LogInfo("Signal launcher");
 					kill(launcher_pid, SIGHUP);
-				} else 
+				} else
 					LogError("ERROR: Launcher died unexpectedly!");
 
 			}
-			
+
 			LogInfo("Total ignored packets: %u", ignored_packets);
 			ignored_packets = 0;
 
@@ -639,12 +649,12 @@ srecord_t	*commbuff;
 
 		/* check for error condition or done . errno may only be EINTR */
 		if ( cnt < 0 ) {
-			if ( periodic_trigger ) {	
-				// alarm triggered, no new flow data 
+			if ( periodic_trigger ) {
+				// alarm triggered, no new flow data
 				periodic_trigger = 0;
 				continue;
 			}
-			if ( done ) 
+			if ( done )
 				// signaled to terminate - exit from loop
 				break;
 			else {
@@ -690,17 +700,17 @@ srecord_t	*commbuff;
 		/* Process data - have a look at the common header */
 		version = ntohs(nf_header->version);
 		switch (version) {
-			case 1: 
+			case 1:
 				Process_v1(in_buff, cnt, fs);
 				break;
 			case 5: // fall through
-			case 7: 
+			case 7:
 				Process_v5_v7(in_buff, cnt, fs);
 				break;
-			case 9: 
+			case 9:
 				Process_v9(in_buff, cnt, fs);
 				break;
-			case 10: 
+			case 10:
 				Process_IPFIX(in_buff, cnt, fs);
 				break;
 			case 255:
@@ -757,7 +767,7 @@ srecord_t	*commbuff;
 } /* End of run */
 
 int main(int argc, char **argv) {
- 
+
 char	*bindhost, *filter, *datadir, pidstr[32], *launch_process;
 char	*userid, *groupid, *checkptr, *listenport, *mcastgroup, *extension_tags;
 char	*Ident, *dynsrcdir, *time_extension, pidfile[MAXPATHLEN];
@@ -773,7 +783,7 @@ int		subdir_index, sampling_rate, compress;
 int		c;
 #ifdef PCAP
 char	*pcap_file;
- 
+
 	pcap_file		= NULL;
 #endif
 
@@ -807,7 +817,7 @@ char	*pcap_file;
 	extension_tags	= DefaultExtensions;
 	dynsrcdir		= NULL;
 
-	while ((c = getopt(argc, argv, "46ef:whEVI:DB:b:jl:J:M:n:p:P:R:S:s:T:t:x:Xru:g:zZ")) != EOF) {
+	while ((c = getopt(argc, argv, "46ef:whEVI:DB:b:jl:J:M:n:p:P:R:S:s:T:t:x:Xru:g:zZq:")) != EOF) {
 		switch (c) {
 			case 'h':
 				usage(argv[0]);
@@ -816,6 +826,16 @@ char	*pcap_file;
 			case 'u':
 				userid  = optarg;
 				break;
+			case 'q':
+#ifdef HAVE_ZMQ_H
+				fprintf(stderr, "ZMQ addr: %s\n", optarg);
+				init_zmq(optarg);
+				fprintf(stderr, "ZMQ publisher opened on ~ %s\n", optarg);
+#else
+				fprintf(stderr, "ZMQ publisher not compiled! Option ignored!\n");
+#endif
+				break;
+
 			case 'g':
 				groupid  = optarg;
 				break;
@@ -872,7 +892,7 @@ char	*pcap_file;
 				}
 				break;
 			case 'n':
-				if ( AddFlowSource(&FlowSource, optarg) != 1 ) 
+				if ( AddFlowSource(&FlowSource, optarg) != 1 )
 					exit(255);
 				break;
 			case 'w':
@@ -910,7 +930,7 @@ char	*pcap_file;
 				break;
 			case 'R': {
 				char *p = strchr(optarg, '/');
-				if ( p ) { 
+				if ( p ) {
 					*p++ = '\0';
 					peer.port = strdup(p);
 				} else {
@@ -930,7 +950,7 @@ char	*pcap_file;
 					 (sampling_rate > 0 && sampling_rate > 10000000) ) {
 					fprintf(stderr, "Invalid sampling rate: %s\n", optarg);
 					exit(255);
-				} 
+				}
 				break;
 			case 'T': {
 				size_t len = strlen(optarg);
@@ -1010,7 +1030,7 @@ char	*pcap_file;
 				exit(255);
 		}
 	}
-	
+
 	if ( FlowSource == NULL && datadir == NULL && dynsrcdir == NULL ) {
 		fprintf(stderr, "ERROR, Missing -n (-l/-I) or -M source definitions\n");
 		exit(255);
@@ -1044,11 +1064,11 @@ char	*pcap_file;
 		printf("Setup pcap reader\n");
 		setup_packethandler(pcap_file, NULL);
 		receive_packet 	= NextPacket;
-	} else 
+	} else
 #endif
-	if ( mcastgroup ) 
+	if ( mcastgroup )
 		sock = Multicast_receive_socket (mcastgroup, listenport, family, bufflen);
-	else 
+	else
 		sock = Unicast_receive_socket(bindhost, listenport, family, bufflen );
 
 	if ( sock == -1 ) {
@@ -1057,7 +1077,7 @@ char	*pcap_file;
 	}
 
 	if ( peer.hostname ) {
-		peer.sockfd = Unicast_send_socket (peer.hostname, peer.port, peer.family, bufflen, 
+		peer.sockfd = Unicast_send_socket (peer.hostname, peer.port, peer.family, bufflen,
 											&peer.addr, &peer.addrlen );
 		if ( peer.sockfd <= 0 )
 			exit(255);
@@ -1100,7 +1120,7 @@ char	*pcap_file;
 				} else {
 					if ( kill(pid, 0) == 0 ) {
 						// process exists
-						fprintf(stderr, "A process with pid %lu registered in pidfile %s is already running!\n", 
+						fprintf(stderr, "A process with pid %lu registered in pidfile %s is already running!\n",
 							pid, strerror(errno));
 						exit(255);
 					} else {
@@ -1225,7 +1245,7 @@ char	*pcap_file;
 	sigaction(SIGCHLD, &act, NULL);
 
 	LogInfo("Startup.");
-	run(receive_packet, sock, peer, twin, t_start, report_sequence, subdir_index, 
+	run(receive_packet, sock, peer, twin, t_start, report_sequence, subdir_index,
 		time_extension, compress, do_xstat);
 	close(sock);
 	kill_launcher(launcher_pid);
