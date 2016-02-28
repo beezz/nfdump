@@ -132,7 +132,7 @@ fi
 AC_ARG_WITH(jsoncpath,
 [  --with-jsoncpath=PATH      Expect jsonc installed in PATH; default /usr/local],
 if test "x$with_jsoncpath" = "xyes" ; then
-	CPPFLAGS="${CPPFLAGS} -I/usr/local/include"
+	CPPFLAGS="${CPPFLAGS} -I/usr/local/include/json-c"
 	LDFLAGS="${LDFLAGS} -L/usr/local/lib"
 else
 	CPPFLAGS="${CPPFLAGS} -I${with_jsoncpath}/include/json-c"
