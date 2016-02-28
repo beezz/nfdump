@@ -756,6 +756,11 @@ srecord_t	*commbuff;
 	if ( verbose && blast_failures ) {
 		fprintf(stderr, "Total missed packets: %u\n", blast_failures);
 	}
+
+#ifdef ZMQ
+	zmq_close(publisher);
+	zmq_ctx_destroy(context);
+#endif
 	free(in_buff);
 
 	fs = FlowSource;
