@@ -3,37 +3,37 @@
  *  Copyright (c) 2009, Peter Haag
  *  Copyright (c) 2004-2008, SWITCH - Teleinformatikdienste fuer Lehre und Forschung
  *  All rights reserved.
- *  
- *  Redistribution and use in source and binary forms, with or without 
+ *
+ *  Redistribution and use in source and binary forms, with or without
  *  modification, are permitted provided that the following conditions are met:
- *  
- *   * Redistributions of source code must retain the above copyright notice, 
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
  *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright notice, 
- *     this list of conditions and the following disclaimer in the documentation 
+ *   * Redistributions in binary form must reproduce the above copyright notice,
+ *     this list of conditions and the following disclaimer in the documentation
  *     and/or other materials provided with the distribution.
- *   * Neither the name of the author nor the names of its contributors may be 
- *     used to endorse or promote products derived from this software without 
+ *   * Neither the name of the author nor the names of its contributors may be
+ *     used to endorse or promote products derived from this software without
  *     specific prior written permission.
- *  
- *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" 
- *  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE 
- *  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE 
- *  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE 
- *  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR 
- *  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF 
- *  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- *  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN 
- *  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
- *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ *  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ *  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ *  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ *  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ *  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ *  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ *  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ *  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
- *  
+ *
  *  $Author: haag $
  *
  *  $Id: netflow_v5_v7.c 69 2010-09-09 07:17:43Z haag $
  *
  *  $LastChangedRevision: 69 $
- *	
+ *
  */
 
 #include "config.h"
@@ -151,7 +151,7 @@ uint16_t	map_size;
 	// extension_size contains the sum of all optional extensions
 	// caculate the record size without counters!
 	v5_output_record_base_size = COMMON_RECORD_DATA_SIZE + 8 + extension_size;  // + 8 for 2 x IPv4 addr
- 
+
 	// align 32 bits
 	if ( ( map_size & 0x3 ) != 0 )
 		map_size += 2;
@@ -164,7 +164,7 @@ uint16_t	map_size;
 	}
 	v5_extension_info.map->type 	  	  = ExtensionMapType;
 	v5_extension_info.map->size 	  	  = map_size;
-	v5_extension_info.map->map_id 	  	  = INIT_ID;		
+	v5_extension_info.map->map_id 	  	  = INIT_ID;
 	v5_extension_info.map->extension_size = extension_size;
 
 	// see netflow_v5_v7.h for extension map description
@@ -196,7 +196,7 @@ char ipstr[IP_STRING_LEN];
 	// search the appropriate exporter engine
 	while ( *e ) {
 		if ( (*e)->info.version == version && (*e)->info.id == engine_tag &&
-			 (*e)->info.ip.v6[0] == fs->ip.v6[0] && (*e)->info.ip.v6[1] == fs->ip.v6[1]) 
+			 (*e)->info.ip.v6[0] == fs->ip.v6[0] && (*e)->info.ip.v6[1] == fs->ip.v6[1])
 			return *e;
 		e = &((*e)->next);
 	}
@@ -275,9 +275,9 @@ char ipstr[IP_STRING_LEN];
 
 
 
-	dbg_printf("New Exporter: v5 SysID: %u, Extension ID: %i, IP: %s, Sampling Mode: %i, Sampling Interval: %u\n", 
+	dbg_printf("New Exporter: v5 SysID: %u, Extension ID: %i, IP: %s, Sampling Mode: %i, Sampling Interval: %u\n",
 		(*e)->info.sysid, (*e)->extension_map->map_id, ipstr, sampler->info.mode	,sampler->info.interval);
-	syslog(LOG_INFO, "Process_v5: New exporter: SysID: %u, engine id %u, type %u, IP: %s, Sampling Mode: %i, Sampling Interval: %u\n", 
+	syslog(LOG_INFO, "Process_v5: New exporter: SysID: %u, engine id %u, type %u, IP: %s, Sampling Mode: %i, Sampling Interval: %u\n",
 		(*e)->info.sysid, ( engine_tag & 0xFF ),( (engine_tag >> 8) & 0xFF ), ipstr, sampler->info.mode	,sampler->info.interval );
 
 	if ( overwrite_sampling > 0 )  {
@@ -344,7 +344,7 @@ char		*string;
 			ipv4_block_t	*ipv4_block;
 
 			/* Process header */
-	
+
 			// count check
 	  		count	= ntohs(v5_header->count);
 			if ( count > NETFLOW_V5_MAX_RECORDS ) {
@@ -359,7 +359,7 @@ char		*string;
 				fs->nffile->buff_ptr = (void *)common_record;
 				return;
 			}
-	
+
 			// output buffer size check for all expected records
 			if ( !CheckBufferSpace(fs->nffile, count * v5_output_record_size) ) {
 				// fishy! - should never happen. maybe disk full?
@@ -396,15 +396,15 @@ char		*string;
 				}
 			}
 			exporter->last_count  = count;
-	
+
 	  		v5_header->SysUptime	 = ntohl(v5_header->SysUptime);
 	  		v5_header->unix_secs	 = ntohl(v5_header->unix_secs);
 	  		v5_header->unix_nsecs	 = ntohl(v5_header->unix_nsecs);
-	
+
 			/* calculate boot time in msec */
-			boot_time  = ((uint64_t)(v5_header->unix_secs)*1000 + 
+			boot_time  = ((uint64_t)(v5_header->unix_secs)*1000 +
 					((uint64_t)(v5_header->unix_nsecs) / 1000000) ) - (uint64_t)(v5_header->SysUptime);
-	
+
 			// process all records
 			v5_record	= (netflow_v5_record_t *)((pointer_addr_t)v5_header + NETFLOW_V5_HEADER_LENGTH);
 
@@ -520,16 +520,16 @@ char		*string;
 					}
 					j++;
 				}
-	
+
 				// Time issues
 	  			First	 				= ntohl(v5_record->First);
 	  			Last		 			= ntohl(v5_record->Last);
 
 #ifdef FIXTIMEBUG
-				/* 
+				/*
 				 * Some users report, that they see flows, which have duration time of about 40days
 				 * which is almost the overflow value. Investigating this, it cannot be an overflow
-				 * and the difference is always 15160 or 15176 msec too little for a classical 
+				 * and the difference is always 15160 or 15176 msec too little for a classical
 				 * overflow. Therefore assume this must be an exporter bug
 				 */
 				if ( First > Last && ( (First - Last)  < 20000) ) {
@@ -560,17 +560,17 @@ char		*string;
 
 				common_record->first 		= start_time/1000;
 				common_record->msec_first	= start_time - common_record->first*1000;
-	
+
 				common_record->last 		= end_time/1000;
 				common_record->msec_last	= end_time - common_record->last*1000;
-	
+
 				// update first_seen, last_seen
 				if ( start_time < fs->first_seen )
 					fs->first_seen = start_time;
 				if ( end_time > fs->last_seen )
 					fs->last_seen = end_time;
-	
-	
+
+
 				// Update stats
 				switch (common_record->prot) {
 					case IPPROTO_ICMP:
@@ -608,7 +608,7 @@ char		*string;
 
 				if ( fs->xstat ) {
 					uint32_t bpp = packets ? (bytes/packets) : 0;
-					if ( bpp > MAX_BPP ) 
+					if ( bpp > MAX_BPP )
 						bpp = MAX_BPP;
 					if ( common_record->prot == IPPROTO_TCP ) {
 						fs->xstat->bpp_histogram->tcp.bpp[bpp]++;
@@ -633,22 +633,23 @@ char		*string;
 				if ( verbose ) {
 					master_record_t master_record;
 					ExpandRecord_v2((common_record_t *)common_record, &v5_extension_info, &(exporter->info), &master_record);
-				 	format_file_block_record(&master_record, &string, 0);
-					printf("%s\n", string);
+					flow_record_to_json(&master_record, &string, 0);
+					s_send(publisher, string);
+					free(string);
 				}
 
 				// advance to next input flow record
 				v5_record		= (netflow_v5_record_t *)((pointer_addr_t)v5_record + flow_record_length);
 
 				if ( ((pointer_addr_t)data_ptr - (pointer_addr_t)common_record) != v5_output_record_size ) {
-					printf("Panic size check: ptr diff: %llu, record size: %u\n", 
-						(unsigned long long)((pointer_addr_t)data_ptr - (pointer_addr_t)common_record), v5_output_record_size ); 
+					printf("Panic size check: ptr diff: %llu, record size: %u\n",
+						(unsigned long long)((pointer_addr_t)data_ptr - (pointer_addr_t)common_record), v5_output_record_size );
 					abort();
 				}
 				// advance to next output record
 				common_record	= (common_record_t *)data_ptr;
 				ipv4_block		= (ipv4_block_t *)common_record->data;
-				
+
 				// buffer size sanity check - should never happen, but check it anyway
 				bsize = (pointer_addr_t)common_record - (pointer_addr_t)fs->nffile->block_header - sizeof(data_block_header_t);
 				if ( bsize >= BUFFSIZE ) {
@@ -701,7 +702,7 @@ void Init_v5_v7_output(send_peer_t *peer) {
 	output_engine.last_sequence	   = 0;
 	output_engine.last_count 	   = 0;
 	output_engine.sequence_failure = 0;
-	v5_output_record = (netflow_v5_record_t *)((pointer_addr_t)v5_output_header + (pointer_addr_t)sizeof(netflow_v5_header_t));	
+	v5_output_record = (netflow_v5_record_t *)((pointer_addr_t)v5_output_header + (pointer_addr_t)sizeof(netflow_v5_header_t));
 
 } // End of Init_v5_v7_output
 
@@ -724,7 +725,7 @@ uint32_t	i, id, t1, t2;
 	}
 	if ( cnt == 0 ) {
 		peer->buff_ptr  = (void *)((pointer_addr_t)peer->send_buffer + NETFLOW_V5_HEADER_LENGTH);
-		v5_output_record = (netflow_v5_record_t *)((pointer_addr_t)v5_output_header + (pointer_addr_t)sizeof(netflow_v5_header_t));	
+		v5_output_record = (netflow_v5_record_t *)((pointer_addr_t)v5_output_header + (pointer_addr_t)sizeof(netflow_v5_header_t));
 		output_engine.sequence = output_engine.last_sequence + output_engine.last_count;
 		v5_output_header->flow_sequence	= htonl(output_engine.sequence);
 		output_engine.last_sequence = output_engine.sequence;
@@ -788,7 +789,7 @@ uint32_t	i, id, t1, t2;
 	if ( cnt == NETFLOW_V5_MAX_RECORDS ) {
 		peer->flush = 1;
 		output_engine.last_count 	  = cnt;
-		cnt = 0; 
+		cnt = 0;
 	}
 
 	return 0;
