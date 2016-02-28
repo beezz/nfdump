@@ -67,7 +67,8 @@ nfdump_SOURCES = nfdump.c nfdump.h nfstat.c nfstat.h nfexport.c nfexport.h  \
 	$(nflowcache) $(nfprof)
 nfdump_LDADD = -lnfdump
 
-nfreplay_SOURCES = nfreplay.c $(nfprof) \
+nfreplay_SOURCES = nfreplay.c \
+   	$(common) $(nfprof) \
 	$(nfnet) $(collector) $(nfv1) $(nfv9) $(nfv5v7) $(ipfix)
 nfreplay_LDADD = -lnfdump
 
@@ -81,7 +82,7 @@ nftrack_CFLAGS = -I ../extra/nftrack
 nftrack_LDADD = -lnfdump -lrrd
 
 nfcapd_SOURCES = nfcapd.c \
-	$(nfstatfile) $(launch) \
+	$(common) $(nfstatfile) $(launch) \
 	$(nfnet) $(collector) $(nfv1) $(nfv5v7) $(nfv9) $(ipfix) $(bookkeeper) $(expire)
 nfcapd_LDADD = -lnfdump
 
@@ -100,6 +101,8 @@ endif
 if ZMQPUB
 nfcapd_CFLAGS = -DZMQ
 nfcapd_SOURCES += zhelpers.h
+nfreplay_SOURCES += zhelpers.h
+nfreplay_LDADD += -lzmq -ljson-c
 nfcapd_LDADD += -lzmq -ljson-c
 endif
 
