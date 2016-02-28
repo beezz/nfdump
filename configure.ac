@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.59)
-AC_REVISION($Revision: 243 $)dnl 
+AC_REVISION($Revision: 243 $)dnl
 AC_INIT(nfdump, 1.6.14, phaag@users.sourceforge.net)
 # $Date: 2014-11-16 14:10:20 +0100 (Sun, 16 Nov 2014) $
 #AC_CONFIG_SRCDIR([grammar.y])
@@ -12,7 +12,7 @@ AM_INIT_AUTOMAKE([subdir-objects])
 LT_INIT
 # AC_ENABLE_SHARED
 # AC_ENABLE_STATIC
- 
+
 # Checks for programs.
 AC_PROG_CC
 AM_PROG_CC_C_O
@@ -79,7 +79,7 @@ if test "x$ac_cv_prog_LEX" = "xflex"; then
 fi
 
 # Check if we need to build the flow-tools converter
-# FIXME? This should use flow-tools-dev if possible, not local sources.. 
+# FIXME? This should use flow-tools-dev if possible, not local sources..
 AC_ARG_WITH(ftpath,
 [  --with-ftpath=PATH      Expect flow-tool sources in PATH; default /usr/local/flow-tools/],
 if test "x$with_ftpath" = "xyes" ; then
@@ -104,13 +104,39 @@ fi
 )
 
 AC_ARG_WITH(pcappath,
-[  --with-pcappath=PATH      Expect RRD installed in PATH; default /usr/local],
+[  --with-pcappath=PATH      Expect pcap installed in PATH; default /usr/local],
 if test "x$with_pcappath" = "xyes" ; then
 	CPPFLAGS="${CPPFLAGS} -I/usr/local/include"
 	LDFLAGS="${LDFLAGS} -L/usr/local/lib"
 else
 	CPPFLAGS="${CPPFLAGS} -I${with_pcappath}/include"
 	LDFLAGS="${LDFLAGS} -L${with_pcappath}/lib"
+fi
+,
+)
+
+
+AC_ARG_WITH(zmqpath,
+[  --with-zmqpath=PATH      Expect zmq installed in PATH; default /usr/local],
+if test "x$with_zmqpath" = "xyes" ; then
+	CPPFLAGS="${CPPFLAGS} -I/usr/local/include"
+	LDFLAGS="${LDFLAGS} -L/usr/local/lib"
+else
+	CPPFLAGS="${CPPFLAGS} -I${with_zmqpath}/include"
+	LDFLAGS="${LDFLAGS} -L${with_zmqpath}/lib"
+fi
+,
+)
+
+
+AC_ARG_WITH(jsoncpath,
+[  --with-jsoncpath=PATH      Expect jsonc installed in PATH; default /usr/local],
+if test "x$with_jsoncpath" = "xyes" ; then
+	CPPFLAGS="${CPPFLAGS} -I/usr/local/include"
+	LDFLAGS="${LDFLAGS} -L/usr/local/lib"
+else
+	CPPFLAGS="${CPPFLAGS} -I${with_jsoncpath}/include/json-c"
+	LDFLAGS="${LDFLAGS} -L${with_jsoncpath}/lib"
 fi
 ,
 )
@@ -141,7 +167,7 @@ AM_CONDITIONAL(FT2NFDUMP, false)
 #Needs tidy
 AC_ARG_ENABLE(nfprofile,
 [  --enable-nfprofile      Build nfprofile used by NfSen; default is NO],
-[ 
+[
 	AC_CHECK_LIB(rrd, rrd_update,[
 cat >>config.h <<_ACEOF
 #define HAVE_LIBRRD 1
@@ -162,8 +188,8 @@ AC_SUBST(RRD_LIBS)
 				#include <stdio.h>
 				#include <rrd.h>
 			]],
-            [[ 
-				rrd_value_t d; 
+            [[
+				rrd_value_t d;
 			]])
 		],, AC_MSG_ERROR(Can not load rrd library. Not in loader search path! ))
 
@@ -174,7 +200,7 @@ AM_CONDITIONAL(NFPROFILE, false)
 
 AC_ARG_ENABLE(nftrack,
 [  --enable-nftrack      Build nftrack used by PortTracker; default is NO],
-[ 
+[
 	AC_CHECK_LIB(rrd, rrd_update,[
 cat >>config.h <<_ACEOF
 #define HAVE_LIBRRD 1
@@ -195,8 +221,8 @@ AC_SUBST(RRD_LIBS)
 				#include <stdio.h>
 				#include <rrd.h>
 			]],
-            [[ 
-				rrd_value_t d; 
+            [[
+				rrd_value_t d;
 			]])
 		],, AC_MSG_ERROR(Can not load rrd library. Not in loader search path! ))
 
@@ -215,7 +241,7 @@ AM_CONDITIONAL(READPCAP, test "$enable_readpcap" = yes)
 
 AC_ARG_ENABLE(nfpcapd,
 [  --enable-nfpcapd       Build nfpcapd collector to create netflow data from interface or pcap data; default is NO],
-[ 
+[
 	AC_CHECK_LIB(pcap, pcap_create,[
 cat >>config.h <<_ACEOF
 #define HAVE_LIBPCAP 1
@@ -236,14 +262,61 @@ AC_SUBST(PCAP_LIBS)
 				#include <stdio.h>
 				#include <pcap.h>
 			]],
-            [[ 
-				struct pcap_pkthdr p; 
+            [[
+				struct pcap_pkthdr p;
 			]])
 		],, AC_MSG_ERROR(Can not load pcap library. Not in loader search path! ))
 
 ]
 ,
 AM_CONDITIONAL(BUILDNFPCAPD, false)
+)
+
+# zmqpub
+AC_ARG_ENABLE(zmqpub,
+[  --enable-zmqpub       Build nfcapd collector to with zmq publisher; default is NO],
+[
+
+AC_CHECK_LIB(zmq, zmq_ctx_new,[
+cat >>config.h <<_ACEOF
+#define HAVE_LIBZMQ 1
+_ACEOF
+ZMQ_LIBS="-lzmq"
+AC_SUBST(ZMQ_LIBS)
+]
+, AC_MSG_ERROR(Can not link libzmq. Please specify --with-zmqpath=.. configure failed! ))
+
+
+	AC_CHECK_HEADERS([zmq.h])
+	if test "$ac_cv_header_zmq_h" = yes; then
+		AM_CONDITIONAL(ZMQPUB, true)
+	else
+		AC_MSG_ERROR(Required zmq.h header file not found!)
+	fi
+	AC_RUN_IFELSE(
+		[ AC_LANG_PROGRAM(
+			[[
+				#include <stdio.h>
+				#include <zmq.h>
+			]],
+            [[
+			]])
+		],, AC_MSG_ERROR(Can not load zmq library. Not in loader search path! ))
+
+
+AC_CHECK_LIB(json-c, json_object_object_add,[
+cat >>config.h <<_ACEOF
+#define HAVE_LIBJSONC 1
+_ACEOF
+JSONC_LIBS="-ljson-c"
+AC_SUBST(JSONC_LIBS)
+]
+, AC_MSG_ERROR(Can not link json-c. Please specify --with-jsoncpath=.. configure failed! ))
+
+
+]
+,
+AM_CONDITIONAL(ZMQPUB, false)
 )
 
 # Check for structures
@@ -359,11 +432,11 @@ AC_CHECK_LIB(socket, res_search, [
  AC_DEFINE(HAVE_LIBSOCKET,1,[ ]) ], [
  AC_CHECK_LIB(resolv, res_search, [
   LIBS="$LIBS -lresolv"
-  AC_DEFINE(HAVE_LIBRESOLV,1,[ ]) 
+  AC_DEFINE(HAVE_LIBRESOLV,1,[ ])
  ], [
   AC_CHECK_LIB(resolv, dn_skipname)
   AC_CHECK_LIB(resolv, __dn_skipname)
- ]) 
+ ])
 ])
 
 AC_CHECK_LIB(bz2, BZ2_bzCompressInit, [
