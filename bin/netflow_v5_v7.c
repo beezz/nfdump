@@ -64,6 +64,10 @@
 #include "exporter.h"
 #include "netflow_v5_v7.h"
 
+#ifdef ZMQ
+#include "zhelpers.h"
+#endif
+
 #ifndef DEVEL
 #   define dbg_printf(...) /* printf(__VA_ARGS__) */
 #else
