@@ -75,6 +75,7 @@
 #endif
 
 extern int verbose;
+extern int zmqpub_set;
 extern extension_descriptor_t extension_descriptor[];
 extern uint32_t default_sampling;
 extern uint32_t overwrite_sampling;
@@ -633,14 +634,22 @@ char		*string;
 					}
 				}
 
-
 				if ( verbose ) {
+					master_record_t master_record;
+					ExpandRecord_v2((common_record_t *)common_record, &v5_extension_info, &(exporter->info), &master_record);
+				 	format_file_block_record(&master_record, &string, 0);
+					printf("%s\n", string);
+				}
+
+#ifdef ZMQ
+				if (zmqpub_set) {
 					master_record_t master_record;
 					ExpandRecord_v2((common_record_t *)common_record, &v5_extension_info, &(exporter->info), &master_record);
 					flow_record_to_json(&master_record, &string, 0);
 					s_send(publisher, string);
 					free(string);
 				}
+#endif
 
 				// advance to next input flow record
 				v5_record		= (netflow_v5_record_t *)((pointer_addr_t)v5_record + flow_record_length);
