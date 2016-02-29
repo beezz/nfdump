@@ -81,6 +81,7 @@ static int	format_index		= 0;
 static int		do_tag 		 = 0;
 static int 		long_v6 	 = 0;
 static int		scale	 	 = 1;
+static int		proto_scale 	 = 1;
 static double	duration;
 
 #define STRINGSIZE 10240
@@ -732,7 +733,7 @@ int Getv6Mode(void) {
 
 void Proto_string(uint8_t protonum, char *protostr) {
 
-	if ( protonum >= NumProtos || !scale ) {
+	if ( protonum >= NumProtos || !proto_scale ) {
 		snprintf(protostr,16,"%-5i", protonum );
 	} else {
 		strncpy(protostr, protolist[protonum], 16);
@@ -1702,6 +1703,9 @@ void flow_record_to_json(void *record, char ** s, int tag) {
 	char *_s = NULL, buf[MAX_STRING_LENGTH];
 	size_t s_size = 0;
 	int i = 0;
+	int original_scale = scale;
+	// don't scale for json
+	scale = 0;
 	json_object * jobj = json_object_new_object();
 
 	duration = r->last - r->first;
@@ -1730,6 +1734,8 @@ void flow_record_to_json(void *record, char ** s, int tag) {
 
 	_s[s_size] = '\0';
 	*s = _s;
+	// return scale bask
+	scale = original_scale;
 } // End of flow_record_to_json
 #endif
 
