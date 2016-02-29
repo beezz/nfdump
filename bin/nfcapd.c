@@ -124,6 +124,7 @@
 /* globals */
 caddr_t		shmem;
 int verbose = 0;
+int zmqpub_set = 0;
 
 extern uint32_t default_sampling;   // the default sampling rate when nothing else applies. set by -S
 extern uint32_t overwrite_sampling;	// unconditionally overwrite sampling rate with given sampling rate -S
@@ -833,6 +834,7 @@ char	*pcap_file;
 				break;
 			case 'q':
 #ifdef HAVE_ZMQ_H
+				zmqpub_set = 1;
 				fprintf(stderr, "ZMQ addr: %s\n", optarg);
 				init_zmq(optarg);
 				fprintf(stderr, "ZMQ publisher opened on ~ %s\n", optarg);
